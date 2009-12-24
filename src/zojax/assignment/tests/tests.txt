@@ -1,0 +1,307 @@
+=====================
+Principal Assingments
+=====================
+
+    >>> from zope import interface, component, event
+    >>> from zope.interface.verify import verifyClass, verifyObject
+    >>> from zope.schema.fieldproperty import FieldProperty
+    >>> from zope.app.schema import vocabulary
+    >>> from zope.app.component.hooks import setSite
+    >>> from zope.component.eventtesting import getEvents, clearEvents
+    >>> from zope.testbrowser.testing import Browser
+    >>> from zojax.assignment import interfaces
+    >>> from zojax.assignment.tests.tests import IContent, Content
+
+    >>> root = getRootFolder()
+    >>> setSite(root)
+
+    >>> content = Content()
+    >>> root['content'] = content
+    >>> content = root['content']
+
+
+Assingments
+-----------
+
+    >>> interfaces.IAssignments(content, None) is None
+    True
+
+object should implement IAssignmentsAware interface
+
+    >>> interface.directlyProvides(content, interfaces.IAssignmentsAware)
+
+    >>> assignments = interfaces.IAssignments(content)
+    >>> verifyObject(interfaces.IAssignments, assignments)
+    True
+
+    >>> from zojax.assignment.assignments import Assignments
+
+    >>> verifyClass(interfaces.IAssignments, Assignments)
+    True
+
+    >>> isinstance(assignments, Assignments)
+    True
+
+    >>> tuple(assignments.assignees)
+    ()
+
+Assign/Reassign/Unassign
+------------------------
+
+assign method
+
+    >>> assignments.assign(('zope.user',))
+    >>> tuple(assignments.assignees)
+    ('zope.user',)
+
+    >>> ev = getEvents()[-1]
+    >>> interfaces.IPrincipalAssignedEvent.providedBy(ev)
+    True
+
+    >>> ev.object is content
+    True
+
+    >>> ev.principal == 'zope.user'
+    True
+
+assign method unassing assigned principal and assign new principals
+
+    >>> assignments.assign(('zope.mgr',))
+    >>> tuple(assignments.assignees)
+    ('zope.mgr',)
+
+    >>> ev1, ev2 = getEvents()[-2:]
+
+    >>> interfaces.IPrincipalUnassignedEvent.providedBy(ev1)
+    True
+    >>> ev1.principal == 'zope.user'
+    True
+
+    >>> interfaces.IPrincipalAssignedEvent.providedBy(ev2)
+    True
+    >>> ev2.principal == 'zope.mgr'
+    True
+
+reassing method - check if principals already assigned if not then assing,
+principals are not unassign
+
+    >>> clearEvents()
+
+    >>> tuple(assignments.assignees)
+    ('zope.mgr',)
+
+    >>> assignments.reassign(('zope.user', 'zope.mgr'))
+    >>> tuple(assignments.assignees)
+    ('zope.mgr', 'zope.user')
+
+    >>> ev, = getEvents()
+    >>> interfaces.IPrincipalAssignedEvent.providedBy(ev)
+    True
+    >>> ev.principal == 'zope.user'
+    True
+
+unassign
+
+    >>> clearEvents()
+    >>> assignments.unassign(('zope.mgr',))
+    >>> tuple(assignments.assignees)
+    ('zope.user',)
+
+    >>> ev, = getEvents()
+    >>> interfaces.IPrincipalUnassignedEvent.providedBy(ev)
+    True
+    >>> ev.principal == 'zope.mgr'
+    True
+
+Other methods
+-------------
+
+    >>> assignments.reassign(('zope.unknown',))
+
+    >>> assignments.isAssigned('zope.user')
+    True
+
+    >>> [p.id for p in assignments.getAssignees()]
+    ['zope.user']
+
+
+Catalog index
+-------------
+
+    >>> from zojax.catalog.interfaces import ICatalog
+    >>> catalog = component.getUtility(ICatalog)
+    >>> catalog.updateIndexes()
+
+    >>> results = list(catalog.searchResults(
+    ...     assignments={'any_of': ('zope.user',)},
+    ...     noPublishing=True, noSecurityChecks=True))
+
+    >>> content in results
+    True
+
+    >>> assignments.unassign(('zope.user', 'zope.unknown'))
+    >>> tuple(assignments.assignees)
+    ()
+
+    >>> from zope.lifecycleevent import ObjectModifiedEvent
+    >>> event.notify(ObjectModifiedEvent(content))
+
+    >>> tuple(catalog.searchResults(
+    ...     assignments={'any_of': ('zope.user',)},
+    ...     noPublishing=True, noSecurityChecks=True))
+    ()
+
+    >>> results = list(catalog.searchResults(
+    ...     assignments={'any_of': (interfaces.NOT_ASSIGNED,)},
+    ...     noPublishing=True, noSecurityChecks=True))
+
+    >>> results
+    [<zojax.assignment.tests.tests.Content object at ...>]
+
+    >>> content in results
+    True
+
+
+AssigneesField
+--------------
+
+    >>> field = IContent['assignees'].bind(content)
+
+    >>> field.get(content)
+    ()
+
+    >>> print field.query(content)
+    ()
+
+    >>> field.validate(('zope.user',))
+    Traceback (most recent call last):
+    ...
+    WrongContainedType: ...
+
+We need IAssigeesProvider for content
+
+    >>> class AssigneesProvider(object):
+    ...     component.adapts(IContent)
+    ...     interface.implements(interfaces.IAssigneesProvider)
+    ...     
+    ...     def __init__(self, content):
+    ...         self.content = content
+    ...     
+    ...     def assignees(self):
+    ...         return ['zope.user', 'zope.mgr']
+
+    >>> component.provideAdapter(AssigneesProvider)
+
+    >>> field.set(content, ('zope.user',))
+    >>> tuple(assignments.assignees)
+    ('zope.user',)
+
+    >>> field.get(content)
+    ('zope.user',)
+
+    >>> field.validate(('zope.unknown',))
+    Traceback (most recent call last):
+    ...
+    WrongContainedType: ...
+
+    >>> field1 = IContent['assignees2'].bind(content)
+    >>> field1.get(content)
+    ('zope.user',)
+    >>> field1.set(content, ('zope.mgr',))
+    Traceback (most recent call last):
+    ...
+    TypeError: Can't set values on read-only fields.
+
+    >>> content1 = Content()
+    >>> field = IContent['assignees'].bind(content1)
+    >>> field.get(content1)
+    ()
+    >>> print field.query(content1)
+    None
+    >>> field.set(content1, ('zope.user',))
+    Traceback (most recent call last):
+    ...
+    TypeError: Object does not implements IAssignments interface.
+
+
+Local roles
+-----------
+
+    >>> from zojax.security.interfaces import IExtendedGrantInfo
+
+    >>> grantinfo = IExtendedGrantInfo(content)
+    >>> grantinfo.getRolesForPrincipal('zope.user')
+    [('content.Assignee', PermissionSetting: Allow)]
+
+    >>> grantinfo.getRolesForPrincipal('zope.mgr')
+    [('zope.Manager', PermissionSetting: Allow)]
+
+    >>> grantinfo.getPrincipalsForRole('content.Assignee')
+    [('zope.user', PermissionSetting: Allow)]
+
+    >>> from zojax.assignment.roles import AssigneeRole
+    >>> roles = AssigneeRole(content)
+
+    >>> roles.getSetting('content.Assignee', 'zope.user')
+    PermissionSetting: Allow
+
+    >>> roles.getSetting('content.Assignee', 'zope.mgr')
+    PermissionSetting: Unset
+
+    >>> roles.getPrincipalsAndRoles()
+
+
+Remove assignments aware content
+--------------------------------
+
+    >>> actor = Browser()
+    >>> actor.addHeader("Authorization", "Basic mgr:mgrpw")
+    >>> actor.handleErrors = False
+    >>> actor.open('http://localhost/settings/content/assignments/')
+    >>> print actor.contents
+    <!DOCTYPE...
+    ...
+    <h1 class="z-form-label">Assignments</h1>
+    <div class="z-form-description">Content assignments.</div>
+    <div class="z-table-container">
+    <table class="z-table">
+      <thead>
+        <tr>
+          <th>Id</th>
+          <th>Object</th>
+          <th>Principals</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="z-table-record odd">
+          <td>...</td>
+          <td><a href="http://localhost/content/">content</a></td>
+          <td>User</td>
+        </tr>
+      </tbody>
+    </table>
+    ...
+    </html>
+
+    >>> del root['content']
+
+    >>> interfaces.IAssignments(content, None) is None
+    True
+
+    >>> configlet = component.getUtility(interfaces.IAssignmentsConfiglet)
+    >>> print list(configlet.data.items())
+    []
+
+    >>> actor.reload()
+    >>> print actor.contents
+    <!DOCTYPE...
+    ...
+    <h1 class="z-form-label">Assignments</h1>
+    <div class="z-form-description">Content assignments.</div>
+    <div class="z-table-container">
+      <div class="z-table-emtpy">There are no assignments.</div>
+    </div>
+    ...
+    </html>
+    
+    >>> setSite(None)
