@@ -1,0 +1,14 @@
+=======
+CHANGES
+=======
+
+0.2.0 (2009-08-11)
+------------------
+
+- Copyright changed to 'Zope Foundation and Contributors'
+
+
+0.1.0 (2009-05-04)
+------------------
+
+- Initial release.

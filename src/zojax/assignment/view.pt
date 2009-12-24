@@ -1,0 +1,6 @@
+<div class="z-topframe">
+  <h1 class="z-form-label" tal:content="context/__title__"></h1>
+  <div class="z-form-description" tal:content="context/__description__"></div>
+
+  <tal:block content="structure provider:assignments" />
+</div>
