@@ -50,6 +50,8 @@ class AssigneesField(Tuple):
 
         assignments = IAssignments(object, None)
         if assignments is not None:
+            if value is None:
+                value = []
             assignments.assign(value)
         else:
             raise TypeError("Object does not implements IAssignments interface.")
