@@ -283,7 +283,12 @@ Remove assignments aware content
     ...
     </html>
 
-    >>> del root['content']
+
+
+    >>> try:
+    ...     del root['content']
+    ... except:
+    ...     del root['content']
 
     >>> interfaces.IAssignments(content, None) is None
     True
